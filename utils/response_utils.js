@@ -1,6 +1,7 @@
 module.exports = {
     CODE_SUCCESS : 200,
     CODE_REQUEST_PARAMS_ERROR : 400,
+    CODE_NOT_LOGIN : 401,
 
     createResponse : function (code, message, data) {
         return JSON.stringify({
@@ -23,6 +24,20 @@ module.exports = {
             delete response.data
         }
         return response
+    },
+
+    /**
+     * 提示客户端需要登录
+     */
+    createNotLoginResponse : function () {
+        return this.createResponse(this.CODE_NOT_LOGIN, '您尚未登录，请先登录再进行操作')
+    },
+
+    /**
+     * 提示客户端登录咋混改超时
+     */
+    createLoginExpireResponse : function () {
+        return this.createResponse(this.CODE_NOT_LOGIN, '登录状态已过期，请重新登录')
     },
 
 }

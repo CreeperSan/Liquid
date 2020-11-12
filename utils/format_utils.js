@@ -32,7 +32,7 @@ module.exports = {
         }
         if (typeof value === 'string'){
             return value.length <= 0
-        } else if (typeof value === 'number'){
+        } else if (typeof value === 'number' || typeof value === 'boolean'){
             return false
         } else if ('length' in value && value.length <= 0){
             return true

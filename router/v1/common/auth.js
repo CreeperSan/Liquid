@@ -3,6 +3,8 @@ const TimeUtils = require('./../../../utils/time_utils')
 const DatabaseUtils = require('./../../../utils/database_utils')
 const ConfigUtils = require('./../../../utils/config_utils')
 
+// TODO 账号密码目前是明文储存，需要加密
+
 module.exports = {
 
     authKey : async function (req, res, next) {
@@ -13,7 +15,7 @@ module.exports = {
         databaseResult = await DatabaseUtils.authGetKeyInfo(key)
         console.log(databaseResult)
         if (!databaseResult.isSuccess || databaseResult.data.length <= 0){
-            res.send(ResponseUtils.createFailResponse(400, '您尚未登录，请先登录'))
+            res.send(ResponseUtils.createNotLoginResponse())
             return
         }
         // 检查时间是否过期
@@ -22,7 +24,7 @@ module.exports = {
         let latestAuthTimestamp = TimeUtils.databaseTimeToMilliSecTimestamp(authCodeItem.latest_auth_time)
         let currentTimestamp = TimeUtils.currentTimeMillis()
         if (currentTimestamp - latestAuthTimestamp > ConfigUtils.appAuthKeyExpireMilliSecTimes){ // 已超过过期时间
-            res.send(ResponseUtils.createFailResponse(400, '登录信息已过期，请重新登录'))
+            res.send(ResponseUtils.createLoginExpireResponse())
             return
         }
         // 更新过期时间（不关心更改结果）

@@ -2,6 +2,7 @@ const sqlite = require('sqlite3').verbose()
 const db = new sqlite.Database('Liquid.db')
 const FormatUtils = require('./format_utils')
 const RandomUtils = require('./random_utils')
+const TimeUtils = require('./time_utils')
 
 module.exports = {
     TABLE_ACCOUNT : 'Account',
@@ -26,9 +27,9 @@ module.exports = {
         // 初始化标签表
         db.run('create table if not exists Tag(_id integer primary key autoincrement not null, parent_id integer default -1, user_id integer not null , create_time timestamp default current_timestamp , name text not null , color text , icon text, extra_info text)')
         // 初始化消费对象
-        db.run('create table if not exists Target(_id integer primary key autoincrement not null, user_id integer not null, name text not null, extra_into text)')
-        // 初始化流水表
-        db.run('create table if not exists Record(_id integer primary key autoincrement not null, user_id integer not null, tag_id integer not null, create_time timestamp default current_timestamp , modify_time timestamp default current_timestamp, record_time timestamp not null ,money integer real not null, currency integer not null , description text, extra_info text)')
+        db.run('create table if not exists Target(_id integer primary key autoincrement not null, user_id integer not null, name text not null, extra_info text)')
+        // 初始化流水表，一个流水对应一个标签，其中type为0代表支出，type为1代表收入
+        db.run('create table if not exists Record(_id integer primary key autoincrement not null, user_id integer not null, tag_id integer not null, create_time timestamp default current_timestamp , modify_time timestamp default current_timestamp, record_time timestamp not null default current_timestamp, type integer not null default 0,money integer real not null, currency integer not null , description text, extra_info text)')
     },
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -217,7 +218,7 @@ module.exports = {
      * @param icon 标签图标
      * @param extraInfo 更多信息
      */
-    tagInsert : function(parentID, userID, name, color, icon, extraInfo){
+    tagInsert : async function(parentID, userID, name, color, icon, extraInfo){
         const self = this
         // 参数矫正
         if (FormatUtils.isEmpty(parentID)){
@@ -245,6 +246,270 @@ module.exports = {
                 }
             })
         })
-    }
+    },
+
+    /**
+     * 检查对应的用户ID是否存在指定名字的标签
+     * @param userID 用户
+     * @param tagName 标签名称
+     * @return {Promise<unknown>}
+     */
+    tagIsNameExist : async function (userID, tagName) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Tag where user_id = ? and name = "?"', [userID, tagName])
+            console.log('tagIsNameExist : ' + sql)
+            db.all(sql, function(err, result){
+                if (err){
+                    console.log(err)
+                    resolve(self.createActionResult(false, '查找同名标签时发生错误'))
+                } else {
+                    resolve(self.createActionResult(true, {
+                        isExist : !FormatUtils.isEmpty(result),
+                        message : '查找完成'
+                    }))
+                }
+            })
+        })
+    },
+
+    /**
+     * 获取所有标签的列表
+     * @param userID 用户ID
+     * @return {Promise<unknown>}
+     */
+    tagGetList : async function (userID) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Tag where user_id = ?', [userID])
+            console.log('tagGetList : ' + sql)
+            db.all(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '查看标签列表发生内部错误'))
+                    return
+                }
+                for (let index in result){ // 格式化数据
+                    let tagItem = result[index]
+                    delete tagItem.user_id
+                    tagItem.id = tagItem._id
+                    delete tagItem._id
+                    if (tagItem.parent_id < 0){
+                        delete tagItem.parent_id
+                    }
+                    if (FormatUtils.isEmpty(tagItem.icon)){
+                        delete tagItem.icon
+                    }
+                    if (tagItem.extra_info === '{}' || FormatUtils.isEmpty(tagItem.extra_info)){
+                        delete tagItem.extra_info
+                    }
+                    tagItem.create_time = TimeUtils.databaseTimeToMilliSecTimestamp(tagItem.create_time)
+                }
+                resolve(self.createActionResult(true, result))
+            })
+        })
+    },
+
+    /**
+     * 标签是否存在
+     * @param userID 用户ID
+     * @param tagID 标签数据库ID
+     */
+    tagIsExist : async function (userID, tagID) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Tag where _id = ? and user_id = ?', [tagID, userID])
+            console.log('tagIsExist : ' + sql)
+            db.all(sql, function(err, result){
+                if (err){
+                    console.log(err)
+                    resolve(self.createActionResult(false, '查找标签时发生错误'))
+                } else {
+                    resolve(self.createActionResult(true, {
+                        isExist : !FormatUtils.isEmpty(result),
+                        message : '查找完成'
+                    }))
+                }
+            })
+        })
+    },
+
+    /**
+     * 删除指定标签
+     * @param userID 用户ID
+     * @param tagID 标签数据库ID
+     */
+    tagDelete : function (userID, tagID) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('delete from Tag where _id = ? and user_id = ?', [tagID, userID])
+            console.log('tagDelete : ' + sql)
+            db.prepare(sql).run(function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true))
+            })
+        })
+    },
+
+    /**
+     * 通过ID获取标签信息
+     * @param userID
+     * @param tagID
+     */
+    tagGetByID : function (userID, tagID) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Tag where _id = ? and user_id = ?', [tagID, userID])
+            console.log('tagGetByID : ' + sql)
+            db.all(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                if (FormatUtils.isEmpty(result)){
+                    resolve(self.createActionResult(true, null))
+                    return
+                }
+                resolve(self.createActionResult(true, result[0]))
+            })
+        })
+    },
+
+    /**
+     * 更新标签
+     * @param tagID 标签ID
+     * @param userID 用户ID
+     * @param parentID 父标签ID
+     * @param name 名称
+     * @param color 颜色
+     * @param icon 图标
+     * @param extraInfo 其他信息
+     */
+    tagUpdate : function (tagID, userID, parentID, name, color, icon, extraInfo) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            // 参数矫正
+            if (FormatUtils.isEmpty(parentID)){
+                parentID = -1
+            }
+            if (FormatUtils.isEmpty(color)){
+                color = '#004AD8'
+            }
+            if (FormatUtils.isEmpty(icon)){
+                icon = ''
+            }
+            if (FormatUtils.isEmpty(extraInfo)){
+                extraInfo = ''
+            }
+            // 更新
+            let sql = FormatUtils.formatString('update Tag set parent_id = ? , name = "?" , color = "?" , icon = "?" , extra_info = "?" where _id = ? and user_id = ?', [parentID, name, color, icon, extraInfo, tagID, userID])
+            console.log('tagUpdate : ' + sql)
+            db.run(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, '更新成功'))
+            })
+        })
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * 插入对象
+     * @param userID 用户ID
+     * @param targetName 对象名称
+     * @return {Promise<object>}
+     */
+    targetInsert : function (userID, targetName) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let stmt = db.prepare('insert into Target(user_id, name, extra_info) values (?, ?, ?)')
+            stmt.run(userID, targetName, '{}', function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, '添加对象成功'))
+            })
+        })
+    },
+
+    /**
+     * 判断对象名称是否已经存在
+     * @param userID 用户ID
+     * @param targetName 对象名称
+     * @return {Promise<object>}
+     */
+    targetIsExist : function (userID, targetName) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Target where user_id = ? and name = "?"', [userID, targetName])
+            console.log('targetIsExist : ' + sql)
+            db.all(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true,{
+                    isExist : !FormatUtils.isEmpty(result),
+                    targetItem : result[0]
+                }))
+            })
+        })
+    },
+
+    /**
+     * 删除对象
+     * @param userID
+     * @param targetID
+     */
+    targetDelete : function (userID, targetID) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('delete from Target where user_id = ? and _id = ?', [userID, targetID])
+            console.log('targetDelete : ' + sql)
+            db.prepare(sql).run(function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, '删除对象成功'))
+            })
+        })
+    },
+
+    /**
+     * 获取所有的对象列表
+     * @param userID
+     */
+    targetGetList : function(userID){
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Target where user_id = ?', [userID])
+            console.log('targetGetList : ' + sql)
+            db.all(sql, function (err, result) {
+                if (err){
+                    console.log(err)
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, result))
+            })
+        })
+    },
+
+    /**
+     * 更改对象内容
+     * @param userID
+     * @param targetID
+     * @param name
+     * @param extraInfo
+     */
+    targetUpdate : function (userID, targetID, name, extraInfo) {
+
+    },
 
 }
