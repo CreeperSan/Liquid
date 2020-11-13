@@ -40,4 +40,11 @@ module.exports = {
         return this.createResponse(this.CODE_NOT_LOGIN, '登录状态已过期，请重新登录')
     },
 
+    /**
+     * 提示请求缺少时区信息
+     */
+    createTimezoneErrorResponse : function () {
+        return this.createResponse(this.CODE_REQUEST_PARAMS_ERROR, '缺少时区信息')
+    }
+
 }

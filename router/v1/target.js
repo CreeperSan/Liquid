@@ -81,4 +81,48 @@ router.post('/delete', async function (req, res) {
     res.send(ResponseUtils.createSuccessResponse())
 })
 
+/**
+ * 更新对象
+ */
+router.post('/update', async function(req, res) {
+    // 获取参数
+    let userID = req.auth['user_id']
+    let requestBody = req.body
+    let targetID = requestBody['target_id']
+    let name = requestBody['name']
+    // 确保对象是否存在
+    let databaseResult = await DatabaseUtils.targetGetByID(userID, targetID)
+    if (!databaseResult.isSuccess){
+        res.send(ResponseUtils.createFailResponse(500, '服务器内部错误'))
+        return
+    }
+    if (databaseResult.data === null || databaseResult.data === undefined){
+        res.send(ResponseUtils.createFailResponse(400, '对象不存在或已被删除'))
+        return
+    }
+    let targetItem = databaseResult.data
+    // 纠正参数
+    if (FormatUtils.isEmpty(name)){
+        name = targetItem.name
+    }
+    if (targetItem.name !== name){ // 如果修改了名称，则要检查是否重复
+        databaseResult = await DatabaseUtils.targetIsExist(userID, name)
+        if (!databaseResult.isSuccess){
+            res.send(ResponseUtils.createFailResponse(500, '服务器内部错误'))
+            return
+        }
+        if (databaseResult.data.isExist){
+            res.send(ResponseUtils.createFailResponse(400, '此对象名称已存在，请更换名称'))
+            return
+        }
+    }
+    // 更新数据库
+    databaseResult = await DatabaseUtils.targetUpdate(userID, targetID, name, targetItem.extra_info)
+    if (!databaseResult.isSuccess){
+        res.send(ResponseUtils.createFailResponse(500, '服务器内部错误'))
+        return
+    }
+    res.send(ResponseUtils.createSuccessResponse())
+})
+
 module.exports = router

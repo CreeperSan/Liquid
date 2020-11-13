@@ -19,17 +19,15 @@ module.exports = {
      */
     init : async function(){
         // 初始化账号表
-        db.run('create table if not exists Account(_id integer primary key autoincrement not null, account text not null unique, password text not null, register_time timestamp default current_timestamp , extra_info text)')
+        db.run('create table if not exists Account(_id integer primary key autoincrement not null, account text not null unique, password text not null, register_time integer not null, extra_info text)')
         // 初始化账号和Key的对应表【数据为临时数据，可以清除】
-        db.run('create table if not exists AccountAuthKey(key text not null primary key unique , user_id integer not null, create_time timestamp not null default current_timestamp , latest_auth_time timestamp not null default current_timestamp )')
-        // 初始化账号和验证码的对应表【数据为临时数据，可以清除】
-        db.run('create table if not exists AccountAuthCode(user_id integer primary key not null unique , code text not null , latest_fetch_time timestamp not null default current_timestamp , today_fetch_times integer not null )')
+        db.run('create table if not exists AccountAuthKey(key text not null primary key unique , user_id integer not null, create_time integer not null , latest_auth_time integer not null )')
         // 初始化标签表
-        db.run('create table if not exists Tag(_id integer primary key autoincrement not null, parent_id integer default -1, user_id integer not null , create_time timestamp default current_timestamp , name text not null , color text , icon text, extra_info text)')
+        db.run('create table if not exists Tag(_id integer primary key autoincrement not null, parent_id integer default -1, user_id integer not null , name text not null , color text , icon text, extra_info text)')
         // 初始化消费对象
         db.run('create table if not exists Target(_id integer primary key autoincrement not null, user_id integer not null, name text not null, extra_info text)')
-        // 初始化流水表，一个流水对应一个标签，其中type为0代表支出，type为1代表收入
-        db.run('create table if not exists Record(_id integer primary key autoincrement not null, user_id integer not null, tag_id integer not null, create_time timestamp default current_timestamp , modify_time timestamp default current_timestamp, record_time timestamp not null default current_timestamp, type integer not null default 0,money integer real not null, currency integer not null , description text, extra_info text)')
+        // 初始化流水表，一个流水对应一个标签
+        db.run('create table if not exists Record(_id integer primary key autoincrement not null, user_id integer not null, tag_id integer not null, target_id integer not null, create_time integer not null , modify_time integer not null, record_time integer not null not null, money integer real not null, currency integer not null , description text, extra_info text)')
     },
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -105,8 +103,8 @@ module.exports = {
     accountRegister : async function (account, password) {
         const self = this
         return new Promise(function (resolve, reject) {
-            let stmt = db.prepare('insert into Account (account, password) values (?,?)')
-            stmt.run(account, password, function (err, result) {
+            let stmt = db.prepare('insert into Account (account, password, register_time) values (?,?,?)')
+            stmt.run(account, password, TimeUtils.currentTimeMillis(), function (err, result) {
                 if (err){
                     resolve(self.createActionResult(false, '账号注册失败'))
                 } else {
@@ -152,10 +150,11 @@ module.exports = {
     authInsertKey : async function(userID, key){
         const self = this
         return new Promise(function (resolve, reject){
-            let sql = 'insert into AccountAuthKey(key, user_id) values (?, ?)'
+            let sql = 'insert into AccountAuthKey(key, user_id, create_time, latest_auth_time) values (?, ?, ?, ?)'
             console.log('authInsertKey : ' + sql)
             let stmt = db.prepare(sql)
-            stmt.run(key, userID, function (err, result) {
+            let currentTimeMillSecond = TimeUtils.currentTimeMillis()
+            stmt.run(key, userID, currentTimeMillSecond, currentTimeMillSecond, function (err, result) {
                 if (err){
                     resolve(self.createActionResult(false, '服务器内部错误'))
                 } else {
@@ -196,7 +195,7 @@ module.exports = {
     authUpdateKeyLastAuthTime : async function(key){
         const self = this
         return new Promise(function (resolve, reject) {
-            let sql = FormatUtils.formatString('update AccountAuthKey set latest_auth_time = current_timestamp where key = "?"', [key])
+            let sql = FormatUtils.formatString('update AccountAuthKey set latest_auth_time = ? where key = "?"', [TimeUtils.currentTimeMillis(), key])
             console.log('authUpdateKeyLastAuthTime : ' + sql)
             db.run(sql, function (err, result) {
                 if (err){
@@ -509,7 +508,116 @@ module.exports = {
      * @param extraInfo
      */
     targetUpdate : function (userID, targetID, name, extraInfo) {
-
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('update Target set name="?",extra_info="?" where _id=? and user_id=?', [name, extraInfo, targetID, userID])
+            console.log('targetUpdate : ' + sql)
+            db.run(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, '操作成功'))
+            })
+        })
     },
+
+    /**
+     * 根据id查询对象
+     * @param userID
+     * @param targetID
+     * @return {Promise<unknown>}
+     */
+    targetGetByID : function (userID, targetID) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Target where user_id = ? and _id = ?', [userID, targetID])
+            console.log('targetGetByID : ' + sql)
+            db.all(sql, function (err, result) {
+                if (err){
+                    console.log(err)
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                if (FormatUtils.isEmpty(result)){
+                    resolve(self.createActionResult(true, null))
+                    return
+                }
+                resolve(self.createActionResult(true, result[0]))
+            })
+        })
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * 添加流水记录
+     * @param userID 用户ID
+     * @param tagID 标签
+     * @param targetID 对象
+     * @param recordTime 记录时间
+     * @param money 金额
+     * @param currency 货币
+     * @param description
+     * @param extraInfo
+     * @return {Promise<unknown>}
+     */
+    recordInsert : function (userID, tagID, targetID, recordTime, money, currency, description, extraInfo) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let currentTimestamp = TimeUtils.currentTimeMillis()
+            let stmt = db.prepare('insert into Record (user_id, tag_id, target_id, create_time, modify_time,record_time, money, currency, description, extra_info) values (?,?,?,?,?,?,?,?,?,?)')
+            stmt.run(userID, tagID, targetID, currentTimestamp, currentTimestamp, recordTime, money, currency, description, extraInfo, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, '操作成功'))
+            })
+        })
+    },
+
+    /**
+     * 删除流水记录
+     * @param userID
+     * @param recordID
+     */
+    recordDelete : function (userID, recordID) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('delete from Record where _id = ? and user_id = ?', [recordID, userID])
+            console.log('recordDelete : ' + sql)
+            let stmt = db.prepare(sql).run(function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, err))
+                    return
+                }
+                resolve(self.createActionResult(true, '操作成功'))
+            })
+        })
+    },
+
+    /**
+     * 根据条件筛选流水列表
+     */
+    recordGetList : function (userID, offset, count) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Record where user_id=? order by modify_time limit ? offset ?', [userID, count, offset]) // 从 offset 开始，获取 count 个
+            console.log('recordGetList : ' + sql)
+            db.all(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                if (result === undefined || result === null){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, result))
+            })
+        })
+    },
+
+
 
 }

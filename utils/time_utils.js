@@ -23,6 +23,6 @@ module.exports = {
      */
     databaseTimeToMilliSecTimestamp : function (timeStr) {
         return Date.parse(timeStr)
-    }
+    },
 
 }

@@ -181,6 +181,19 @@ module.exports = {
                 return createCurrentInfo(id, '南非', '兰特', 'ZAR')
         }
         return createCurrentInfo(id, '未知', '未知', '<Unknown>')
-    }
+    },
+
+    isCurrencyIDSupported : function (currencyID) {
+        return [
+            this.AED, this.ARS, this.AUD, this.BGN, this.BRL, this.BSD, this.CAD,
+            this.CHF, this.CLP, this.CNY, this.COP, this.CZK, this.DKK, this.DOP,
+            this.EGP, this.EUR, this.FJD, this.GBP, this.GTQ, this.HKD, this.HRK,
+            this.HUF, this.IDR, this.ILS, this.INR, this.ISK, this.JPY, this.KRW,
+            this.KZT, this.MOP, this.MVR, this.MXN, this.MYR, this.NOK, this.NZD,
+            this.PAB, this.PEN, this.PHP, this.PKR, this.PLN, this.PYG, this.RON,
+            this.RUB, this.SAR, this.SEK, this.SGD, this.THB, this.TRY, this.TWD,
+            this.UAH, this.USD, this.UYU, this.ZAR, this.EMPTY
+        ].indexOf(currencyID) >= 0
+    },
 
 }

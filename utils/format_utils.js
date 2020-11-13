@@ -41,4 +41,30 @@ module.exports = {
 
     },
 
+    /**
+     * 判断一个变量是否为 null 或 undefine
+     * @param value
+     */
+    isNull : function (value) {
+        return value === undefined || value === null
+    },
+
+    /**
+     * 把变量限制在一个范围内
+     * @param value 值
+     * @param min 最小值
+     * @param max 最大值
+     */
+    limitNumber : function (value, min, max) {
+        if (min > max){
+            throw Error('最小值不能大于最大值')
+        }
+        if (value < min){
+            value = min
+        }else if (value > max){
+            value = max
+        }
+        return value
+    },
+
 }
