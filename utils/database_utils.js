@@ -4,20 +4,54 @@ const FormatUtils = require('./format_utils')
 const RandomUtils = require('./random_utils')
 const TimeUtils = require('./time_utils')
 
+// TODO 逻辑过多，耦合严重，后面需要拆离
+
 module.exports = {
+    _VERSION_LATEST : 1,
+
     TABLE_ACCOUNT : 'Account',
 
     /**
-     * 数据库升级
+     * 初始化
      */
-    update : function(){
+    init : async function(){
+        // 初始化配置数据表
+        db.run('create table if not exists _Preferences(key text primary key not null unique, value text not null )')
+        // 数据库升级检查
+        console.log('正在检查数据库版本升级')
+        let databaseVersion = await this.getDatabaseVersion()
+        while (databaseVersion < this._VERSION_LATEST){
+            if (databaseVersion){
+                throw Error('数据库更新异常！')
+            }
+            console.log(FormatUtils.formatString('当前版本数据库（?）存在更新，正在数据库升级中...', [databaseVersion]))
+            let prevDatabaseVersion = databaseVersion
+            databaseVersion = await this.update(databaseVersion)
+            await this.setDatabaseVersion(databaseVersion)
+            console.log(FormatUtils.formatString('数据库升级完成  ? -> ?', [prevDatabaseVersion, databaseVersion]))
+        }
+        console.log('数据库版本已是最新 : ' + databaseVersion)
+        // 初始化完成
+    },
 
+
+    /**
+     * 数据库升级逻辑
+     */
+    update : async function(version){
+        switch (version) {
+            case 0:
+                return await this._updateFrom0(version)
+            default:
+                return -1
+        }
     },
 
     /**
      * 初始化表
+     * @return {Promise<void>}
      */
-    init : async function(){
+    _updateFrom0 : async function(version){
         // 初始化账号表
         db.run('create table if not exists Account(_id integer primary key autoincrement not null, account text not null unique, password text not null, register_time integer not null, extra_info text)')
         // 初始化账号和Key的对应表【数据为临时数据，可以清除】
@@ -28,6 +62,29 @@ module.exports = {
         db.run('create table if not exists Target(_id integer primary key autoincrement not null, user_id integer not null, name text not null, extra_info text)')
         // 初始化流水表，一个流水对应一个标签
         db.run('create table if not exists Record(_id integer primary key autoincrement not null, user_id integer not null, tag_id integer not null, target_id integer not null, create_time integer not null , modify_time integer not null, record_time integer not null not null, money integer real not null, currency integer not null , description text, extra_info text)')
+        return new Promise(function (resolve, reject) {
+            setTimeout(function () {
+                resolve(1)
+            }, 500)
+        })
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * 获取数据库版本
+     * @return {Promise<number>}
+     */
+    getDatabaseVersion : async function(){
+        return parseInt((await this.getPreference('version', '0')).toString())
+    },
+
+    /**
+     * 写入数据库版本
+     * @param version
+     * @return {Promise<void>}
+     */
+    setDatabaseVersion : async function(version){
+        await this.setPreference('version', version.toString())
     },
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -44,16 +101,40 @@ module.exports = {
     },
 
     /**
-     * 数据库基本操作 - 同步查询
-     * @param sql sql 语句
-     * @return {Promise<unknown>}
+     * 获取键值对数据
+     * @param key 键
+     * @param defaultValue 默认值
      */
-    databaseSelectSync : async function(sql){
-        const self = this
+    getPreference : async function(key, defaultValue = ''){
         return new Promise(function (resolve, reject) {
-            console.log(FormatUtils.formatString('数据库查询：?', [sql]))
+            let sql = FormatUtils.formatString('select * from _Preferences where key="?" limit ?', [key, 1])
+            console.log('getPreference : ' + sql)
             db.all(sql, function (err, result) {
-                resolve(self.databaseCreateResult(err, result))
+                if (err){
+                    resolve(defaultValue)
+                    return
+                }
+                if (FormatUtils.isEmpty(result)){
+                    resolve(defaultValue)
+                    return
+                }
+                resolve(result[0].value)
+            })
+        })
+    },
+
+    /**
+     * 写入键值对数据
+     * @param key
+     * @param value
+     */
+    setPreference : async function(key, value){
+        return new Promise(function (resolve, reject) {
+            let sql = 'insert or replace into _Preferences(key, value) values (?, ?)'
+            console.log('setPreference : ' + sql)
+            let stmt = db.prepare(sql)
+            stmt.run(key, value, function (err, result) {
+                resolve()
             })
         })
     },
@@ -333,6 +414,30 @@ module.exports = {
     },
 
     /**
+     * 标签是否为父标签
+     * @param userID 用户ID
+     * @param tagID 标签ID
+     */
+    tagIsParent : async function(userID, tagID){
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Tag where _id=? and user_id=? and parent_id>?', [tagID, userID, -1])
+            console.log('tagIsExist : ' + sql)
+            db.all(sql, function(err, result){
+                if (err){
+                    console.log(err)
+                    resolve(self.createActionResult(false, '查找标签时发生错误'))
+                } else {
+                    resolve(self.createActionResult(true, {
+                        isParent : FormatUtils.isEmpty(result),
+                        message : '查找完成'
+                    }))
+                }
+            })
+        })
+    },
+
+    /**
      * 删除指定标签
      * @param userID 用户ID
      * @param tagID 标签数据库ID
@@ -598,11 +703,76 @@ module.exports = {
 
     /**
      * 根据条件筛选流水列表
+     * @param userID 必填，用户
+     * @param offset 必填，偏移量
+     * @param count 必填，获取数量
+     * @param startTime 开始时间
+     * @param endTime 结束时间
+     * @param moneyMin 最小金额
+     * @param moneyMax 最大金额
+     * @param tags 标签列表
+     * @param targets 对象列表
+     * @param currencies 货币列表
+     * @param orderBy 排序方式
+     * @param isReverse 是否倒序
      */
-    recordGetList : function (userID, offset, count) {
+    recordGetList : function (userID, startTime, endTime, moneyMin, moneyMax, tags, targets, currencies, orderBy, isReverse, count, offset) {
         const self = this
         return new Promise(function (resolve, reject) {
-            let sql = FormatUtils.formatString('select * from Record where user_id=? order by modify_time limit ? offset ?', [userID, count, offset]) // 从 offset 开始，获取 count 个
+            let sql = 'select * from Record where user_id=? '
+            let sqlParams = [userID]
+            // 开始组装SQL语句
+            if (!FormatUtils.isEmpty(tags)){ // 标签
+                let tagList = []
+                for (index in tags){
+                    tagList.push(parseInt(tags[index]))
+                }
+                sql += 'and tag_id in(?)'
+                sqlParams.push(tagList.toString())
+            }
+            if (!FormatUtils.isEmpty(targets)){ // 对象
+                let targetList = []
+                for (index in targets){
+                    targetList.push(parseInt(targets[index]))
+                }
+                sql += 'and target_id in(?)'
+                sqlParams.push(targetList.toString())
+            }
+            if (!FormatUtils.isEmpty(currencies)){ // 货币
+                let currencyList = []
+                for (index in currencies){
+                    currencyList.push(parseInt(currencies[index]))
+                }
+                sql += 'and currency in(?)'
+                sqlParams.push(currencyList.toString())
+            }
+            if (!FormatUtils.isEmpty(moneyMin)){ // 最小金额
+                sql += 'and money > ? '
+                sqlParams.push(moneyMin)
+            }
+            if (!FormatUtils.isEmpty(moneyMax)){ // 最大金额
+                sql += 'and money < ? '
+                sqlParams.push(moneyMax)
+            }
+            if (!FormatUtils.isEmpty(startTime)){ // 开始时间
+                sql += 'and record_time > ? '
+                sqlParams.push(startTime)
+            }
+            if (!FormatUtils.isEmpty(endTime)){ // 结束时间
+                sql += 'and record_time < ? '
+                sqlParams.push(endTime)
+            }
+            sql += 'order by ? ' // 排序依据
+            sqlParams.push(orderBy)
+            if (isReverse){ // 是否倒序
+                sql += 'desc '
+            }
+            sql += 'limit ? ' // 查询数量
+            sqlParams.push(count)
+            sql += 'offsest ? ' // 查询偏移量
+            sqlParams.push(offset)
+            // 组装结束，执行语句
+            sql = FormatUtils.formatString(sql, sqlParams) // 从 offset 开始，获取 count 个
             console.log('recordGetList : ' + sql)
             db.all(sql, function (err, result) {
                 if (err){
@@ -618,6 +788,61 @@ module.exports = {
         })
     },
 
+    /**
+     * 判断指定的流水记录是否存在
+     * @param userID
+     * @param recordID
+     */
+    recordIsExist : function(userID, recordID){
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('select * from Record where user_id=? and _id=?', [userID, recordID])
+            console.log('recordIsExist : ' + sql)
+            db.all(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                if (FormatUtils.isEmpty(result)){
+                    resolve(self.createActionResult(true, {
+                        isExist : false
+                    }))
+                    return
+                }
+                resolve(self.createActionResult(true, {
+                    isExist : false,
+                    item : result[0]
+                }))
+            })
+        })
+    },
+
+    /**
+     * 编辑流水记录
+     * @param recordID
+     * @param userID
+     * @param tagID
+     * @param targetID
+     * @param recordTime
+     * @param money
+     * @param currency
+     * @param description
+     * @param extraInfo
+     */
+    recordUpdate : function (userID, recordID, tagID, targetID, recordTime, money, currency, description, extraInfo) {
+        const self = this
+        return new Promise(function (resolve, reject) {
+            let sql = FormatUtils.formatString('update Record set tag_id=?,target_id=?,modify_time=?,record_time=?,money=?,currency=?,description="?",extra_info="?" where _id=?,user_id=?', [tagID, targetID, TimeUtils.currentTimeMillis(), recordTime, money, currency, description, extraInfo, recordID, userID])
+            console.log('recordUpdate : ' + sql)
+            db.run(sql, function (err, result) {
+                if (err){
+                    resolve(self.createActionResult(false, '服务器内部错误'))
+                    return
+                }
+                resolve(self.createActionResult(true, '操作成功'))
+            })
+        })
+    }
 
 
 }

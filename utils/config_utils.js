@@ -5,14 +5,6 @@ module.exports = {
     serverPort : 4000,                                          // 服务器运行端口
 
     /**
-     * 数据库配置
-     */
-    databaseAddress : 'localhost',                              // 数据库连接的地址
-    databasePort : 3306,                                        // 数据库连接端口号
-    databaseAccount : '',                                       // 数据库连接登录账号
-    databasePassword : '',                                      // 数据库连接登录密码
-
-    /**
      * 应用配置
      */
     appMaxOnlineDeviceCount : 5,                                // 同时在线设备总数

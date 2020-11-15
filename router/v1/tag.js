@@ -30,8 +30,33 @@ router.post('/add', async function(req, res) {
     if (FormatUtils.isEmpty(isAllowNameRepeat)){
         isAllowNameRepeat = false
     }
-    // TODO 检查 parent_id 对应的父标签是否存在
-    // TODO 颜色参数校验
+    // 检查父标签是否存在
+    let databaseResult;
+    if (!FormatUtils.isNull(parentID) && parentID >= 0){
+        databaseResult = await DatabaseUtils.tagIsExist(userID, parentID)
+        if (!databaseResult.isSuccess){
+            res.send(ResponseUtils.createFailResponse(500, '服务器内部错误'))
+            return
+        }
+        if (!databaseResult.data.isExist){
+            res.send(ResponseUtils.createFailResponse(400, '父标签不存在'))
+            return
+        }
+        databaseResult = await DatabaseUtils.tagIsParent(userID, parentID)
+        if (!databaseResult.isSuccess){
+            res.send(ResponseUtils.createFailResponse(500, '服务器内部错误'))
+            return
+        }
+        if (!databaseResult.data.isParent){
+            res.send(ResponseUtils.createFailResponse(400, '选中到父标签不是父标签'))
+            return
+        }
+    }
+    // 检查颜色是否符合要求
+    if (!FormatUtils.isColorValid(color)){
+        res.send(ResponseUtils.createFailResponse(400, '颜色格式错误'))
+        return
+    }
     // 检查是否已经存在同名标签
     if (!isAllowNameRepeat){
         let result = await DatabaseUtils.tagIsNameExist(userID, name)
@@ -45,7 +70,7 @@ router.post('/add', async function(req, res) {
         }
     }
     // 写入数据库
-    let databaseResult = await DatabaseUtils.tagInsert(parentID, userID, name, color, icon, '{}')
+    databaseResult = await DatabaseUtils.tagInsert(parentID, userID, name, color, icon, '{}')
     if (databaseResult.isSuccess){
         res.send(ResponseUtils.createSuccessResponse('创建标签成功'))
     } else {
@@ -144,7 +169,33 @@ router.post('/update', async function(req, res) {
     if (FormatUtils.isEmpty(isAllowNameRepeat)){
         isAllowNameRepeat = false
     }
-    // 如果更改了名字并且不允许名字重复，则检查名字是否重复 TODO 这里的判断逻辑不合理，需要更改为根据tagID判断是否同一个标签
+    // 检查父标签是否存在
+    if (!FormatUtils.isNull(parentID) && parentID >= 0){
+        databaseResult = await DatabaseUtils.tagIsExist(userID, parentID)
+        if (!databaseResult.isSuccess){
+            res.send(ResponseUtils.createFailResponse(500, '服务器内部错误'))
+            return
+        }
+        if (!databaseResult.data.isExist){
+            res.send(ResponseUtils.createFailResponse(400, '父标签不存在'))
+            return
+        }
+        databaseResult = await DatabaseUtils.tagIsParent(userID, parentID)
+        if (!databaseResult.isSuccess){
+            res.send(ResponseUtils.createFailResponse(500, '服务器内部错误'))
+            return
+        }
+        if (!databaseResult.data.isParent){
+            res.send(ResponseUtils.createFailResponse(400, '选中到父标签不是父标签'))
+            return
+        }
+    }
+    // 检查颜色是否符合要求
+    if (!FormatUtils.isColorValid(color)){
+        res.send(ResponseUtils.createFailResponse(400, '颜色格式错误'))
+        return
+    }
+    // 如果更改了名字并且不允许名字重复，则检查名字是否重复
     if (!isAllowNameRepeat && 'name' in requestBody && prevTagInfo['name'] !== name){
         databaseResult = await DatabaseUtils.tagIsNameExist(userID, name)
         if (!databaseResult.isSuccess){
