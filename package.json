@@ -22,7 +22,7 @@
     "sqlite3": "^5.0.0"
   },
   "scripts": {
-    "start": "node main.ts",
-    "config": "node config.ts "
+    "start": "node main.js",
+    "config": "node config.js "
   }
 }

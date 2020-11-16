@@ -6,6 +6,10 @@ const RandomUtils = require('../../utils/random_utils')
 const TimeUtils = require('../../utils/time_utils')
 const ConfigUtils = require('../../utils/config_utils')
 
+// TODO key的清除（防止超出最大限制登录设备）
+// TODO 登录设备的记录（防止重复登录退出登录挤占Key总数）
+// TODO 登录设备平台的记录（可以App，可以网页）
+
 /**
  * 登陆接口
  */
@@ -13,7 +17,6 @@ router.post('/login', async function (req, res) {
     const requestBody = req.body
     let account = requestBody.account
     let password = requestBody.password
-    let result
     // 检查参数是否都有了
     if (!account || !password){
         res.send(ResponseUtils.createFailResponse(ResponseUtils.CODE_REQUEST_PARAMS_ERROR, '参数不正确'))
@@ -24,19 +27,19 @@ router.post('/login', async function (req, res) {
     password.replace(' ', '')
     console.log('账号:'+account+'  密码:'+password)
     // 登录
-    result = await DatabaseUtils.accountLogin(account, password)
-    if(result.isSuccess){
-        // 账号密码正确
+    let databaseResult = await DatabaseUtils.accountLogin(account, password)
+    if(databaseResult.isSuccess){
+        // 账号密码正确，记录新的Key
         console.log('登录成功的账号为：')
-        let account = result.data.account       // 登录的账号
-        let userID = result.data._id            // 登录的id
+        let account = databaseResult.data.account       // 登录的账号
+        let userID = databaseResult.data._id            // 登录的id
         let authCodeRetryCount = 5              // 尝试N次生成Key，如果N次都失，则返回服务器繁忙（其实也不是繁忙orz）
         let authKey = ''                        // 登录的token
         while(authCodeRetryCount > 0){
             authCodeRetryCount -= 1
             authKey = RandomUtils.generateKey()
-            result = await DatabaseUtils.authInsertKey(userID, authKey)
-            if (result.isSuccess){
+            databaseResult = await DatabaseUtils.authInsertKey(userID, authKey)
+            if (databaseResult.isSuccess){
                 break
             }
             if (authCodeRetryCount < 0){
@@ -62,7 +65,6 @@ router.post('/register', async function (req, res) {
     const requestBody = req.body
     let account = requestBody.account
     let password = requestBody.password
-    let result
     // 检查参数是否都有了
     if (!account || !password){
         res.send(ResponseUtils.createFailResponse(ResponseUtils.CODE_REQUEST_PARAMS_ERROR, '参数不正确'))
@@ -78,14 +80,15 @@ router.post('/register', async function (req, res) {
         return
     }
     // 检查账号是否已经注册
-    result = await DatabaseUtils.accountIsRegister(account)
-    if(result.isSuccess){
+    let databaseResult
+    databaseResult = await DatabaseUtils.accountIsRegister(account)
+    if(databaseResult.isSuccess){
         res.send(ResponseUtils.createFailResponse(ResponseUtils.CODE_REQUEST_PARAMS_ERROR, '账号已经注册'))
         return
     }
     // 注册账号
-    result = await DatabaseUtils.accountRegister(account, password)
-    if (result){
+    databaseResult = await DatabaseUtils.accountRegister(account, password)
+    if (databaseResult){
         res.send(ResponseUtils.createSuccessResponse())
     } else {
         res.send(ResponseUtils.createFailResponse(ResponseUtils.CODE_REQUEST_PARAMS_ERROR, '账号已注册，请更换账号'))
