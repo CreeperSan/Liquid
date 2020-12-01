@@ -769,7 +769,7 @@ module.exports = {
             }
             sql += 'limit ? ' // 查询数量
             sqlParams.push(count)
-            sql += 'offsest ? ' // 查询偏移量
+            sql += 'offset ? ' // 查询偏移量
             sqlParams.push(offset)
             // 组装结束，执行语句
             sql = FormatUtils.formatString(sql, sqlParams) // 从 offset 开始，获取 count 个
